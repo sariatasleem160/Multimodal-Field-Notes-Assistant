@@ -13,7 +13,110 @@ Turn **photos** and **voice memos** into structured work artifacts — receipts,
 
 Real work is not only typed text. People photograph whiteboards, scan receipts, record meetings, and leave voice notes. This project shows how to chain **vision**, **speech-to-text**, **LLM summarization**, and **text-to-speech** into a usable pipeline with latency metrics.
 
-## File structure
+## Architecture
+
+### System overview
+
+```mermaid
+flowchart TB
+    subgraph UI["Streamlit App (app.py)"]
+        IMG_TAB["Image Tab"]
+        AUD_TAB["Audio Tab"]
+    end
+
+    subgraph Pipelines["Python Pipelines"]
+        VISION["vision.py"]
+        TRANS["transcribe.py"]
+        SUMM["summarize.py"]
+        SPEAK["speak.py"]
+        SCHEMA["schemas.py"]
+        EVAL["evaluate.py"]
+    end
+
+    subgraph OpenAI["OpenAI API"]
+        GPT4O["gpt-4o (vision)"]
+        WHISPER["whisper-1 (STT)"]
+        MINI["gpt-4o-mini (summary)"]
+        TTS["tts-1 (speech)"]
+    end
+
+    subgraph Output["Outputs"]
+        UI_OUT["Answers · JSON · Transcript · Summary"]
+        EXPORT["Markdown · CSV · MP3"]
+        RESULTS["results/*.jsonl · latency_summary.json"]
+    end
+
+    IMG_TAB --> VISION
+    AUD_TAB --> TRANS
+    AUD_TAB --> SUMM
+    AUD_TAB --> SPEAK
+
+    VISION --> SCHEMA
+    SUMM --> SCHEMA
+    EVAL --> VISION
+    EVAL --> TRANS
+    EVAL --> SUMM
+
+    VISION --> GPT4O
+    TRANS --> WHISPER
+    SUMM --> MINI
+    SPEAK --> TTS
+
+    VISION --> UI_OUT
+    SUMM --> UI_OUT
+    SPEAK --> EXPORT
+    EVAL --> RESULTS
+```
+
+### Image pipeline
+
+```mermaid
+flowchart LR
+    A["📷 Upload image"] --> B["vision.py"]
+    B --> C{"Extraction mode"}
+    C -->|Receipt / Whiteboard / Chart / Equipment| D["Schema prompt"]
+    C -->|Free-form| E["Question prompt"]
+    D --> F["gpt-4o Vision"]
+    E --> F
+    F --> G["JSON response"]
+    G --> H["Pydantic validation\n(schemas.py)"]
+    H --> I["Answer + structured data"]
+    I --> J["Streamlit UI"]
+    J --> K["Follow-up chat\n(same image)"]
+    K --> B
+```
+
+### Audio pipeline
+
+```mermaid
+flowchart LR
+    A["🎙️ Upload audio"] --> B["transcribe.py"]
+    B --> C["whisper-1"]
+    C --> D["Transcript + segments"]
+    D --> E["summarize.py"]
+    E --> F["gpt-4o-mini"]
+    F --> G["MeetingSummary"]
+    G --> H["Summary · Decisions · Action items"]
+    H --> I["Streamlit UI"]
+    H --> J["Export Markdown / CSV"]
+    H --> K{"TTS enabled?"}
+    K -->|Yes| L["speak.py → tts-1 → MP3"]
+    K -->|No| I
+    L --> I
+```
+
+### Component map
+
+| Layer | File | Responsibility |
+|-------|------|----------------|
+| UI | `app.py` | Two-tab Streamlit interface, file upload, exports |
+| Vision | `vision.py` | Base64 encode image, call GPT-4o, parse JSON |
+| Speech-to-text | `transcribe.py` | Whisper transcription with optional segment labels |
+| Summarization | `summarize.py` | Structured meeting notes, Markdown/CSV export |
+| Text-to-speech | `speak.py` | Spoken summary via OpenAI TTS |
+| Schemas | `schemas.py` | Pydantic models for receipts, whiteboards, meetings |
+| Evaluation | `evaluate.py` | Batch runs, latency metrics, action-item accuracy |
+
 
 ```
 03-multimodal-field-notes/
